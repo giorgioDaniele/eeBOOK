@@ -15,7 +15,7 @@ const ZERO_STRING        : &str =  "0";
 
 mod ebook_mod;
 use druid::text::RichText;
-use druid::AppLauncher;
+use druid::{AppLauncher, FileInfo};
 use druid::Color;
 use druid::Data;
 use druid::Lens;
@@ -57,10 +57,6 @@ pub struct BookMetadata {
     language:      String,
     generator:     String,
     cover_image:   String,
-
-    // INFORMAZIONI SUL NOME DEI FILE HTML
-    #[data(eq)]
-    titles:        Vec<String>,
    
 }
 
@@ -104,8 +100,10 @@ pub struct BookState {
     cover_pixels:    Vec<u8>,
     book_has_cover:  bool,
     width_cover:     u32,
-    height_cover:    u32,   
-    
+    height_cover:    u32,
+
+    #[data(ignore)]
+    epub_path:      FileInfo,
 }
 
 

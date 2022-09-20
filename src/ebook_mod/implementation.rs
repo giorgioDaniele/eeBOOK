@@ -1,7 +1,7 @@
 use crate::*;
 
 use std::collections::HashMap;
-use std::fs;
+use std::{fs, path};
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Write;
@@ -60,41 +60,6 @@ Claudio Di Maida";
 pub fn rewind_epub_cursor(epub_doc: & mut EpubDoc<BufReader<File>>) {
     while epub_doc.go_prev().is_ok() {}
 }
-pub fn create_epub(epub: &mut Vec<u8>, meta: & BookMetadata, html: & Vec<String>) -> Result<String, String> {
-    
-
-    if let Ok(mut builder) = EpubBuilder::new(ZipLibrary::new().unwrap()) {
-
-        builder.metadata("author", meta.author.clone()).unwrap();
-        builder.metadata("title",  meta.title.clone()).unwrap();
-        builder.stylesheet(meta.stylesheet.as_bytes()).unwrap();
-
-        let mut contents = Vec::new();
-     
-        
-        for (index, html_source_code) in html.iter().enumerate() {
-                if let Some(current_chapter_name) = meta.titles.get(index) {
-                    contents.push(
-                        EpubContent::new(current_chapter_name, html_source_code.as_bytes())
-                            .title(current_chapter_name)
-                            .reftype(ReferenceType::Text),
-                    );
-                }
-        }
-    
-        for content in contents {
-            builder.add_content(content);
-        }
-
-        builder.inline_toc();
-        builder.generate(epub);
-        return Ok("DONE".to_string())
-    }
-    Err("ERROR".to_string())
-
-
-}
-
 
 /// L'IMPLEMENTAZIONE DI Delegate E' QUEL MECCANISMO CHE PERMETTE
 /// ALLA LIBRERIA Druid DI DIALOGARE CON IL SOTTOSITEMA DEL FILE SYSTEM
@@ -115,15 +80,18 @@ impl AppDelegate<BookState> for Delegate {
 
         // SALVATAGGIO EPUB
         if let Some(file_info) = cmd.get(commands::SAVE_FILE_AS) {
-
             data.save_current_modified_page();
-            let mut epub = Vec::new();
-            let mut file = File::create(file_info.path()).unwrap();
-            if let Ok(_result) = create_epub(&mut epub, &data.metadata, &data.raw_pages_modified) {
-                if let Ok(_) = file.write_all(&epub) {
-                    println!("DONE");
+            if let Ok(mut epub_doc) = EpubDoc::new(data.epub_path.path()){
+
+                let mut epub = Vec::new();
+                if let Ok(_) = run(&mut epub, &mut epub_doc, data) {
+                    let mut file = File::create(file_info.path()).unwrap();
+                    if let Ok(_) = file.write_all(&epub) {}
                 }
+
             }
+
+
             return Handled::Yes;
         }
 
@@ -135,8 +103,11 @@ impl AppDelegate<BookState> for Delegate {
             }
 
             let mut page = 0;
+            println!("{:?}", file_info);
 
             if let Ok(mut epub_doc) = EpubDoc::new(file_info.path()) {
+
+                data.epub_path=file_info.clone();
 
                 // CATTURA DEI METADATI DEL FILE EPUB APERTO
                 data.fill_metadata(&mut epub_doc);
@@ -161,9 +132,17 @@ impl AppDelegate<BookState> for Delegate {
                 let turn = Arc::new((Mutex::new(1), Condvar::new()));
                 
                 rewind_epub_cursor(&mut epub_doc);
-                while epub_doc.go_next().is_ok() {
 
 
+                loop {
+
+                    if let Ok(epcov)= epub_doc.get_cover_id(){
+                            if let Some(cover) = epub_doc.resources.get(&*epcov) {
+                                if page==0 {
+                                    epub_doc.go_next().is_ok();
+                                }
+                            }
+                    }
                     if let Ok(current_html_page) = epub_doc.get_current_str() {
 
                         let transmit = Sender::clone(&transmit);
@@ -197,7 +176,12 @@ impl AppDelegate<BookState> for Delegate {
                         });
 
                     }
+                    // VERIFICA SE CI SONO ALTRI CAPITOLO, SE NON CE SONO ALTRI ESCI DAL LOOP
+                    if !epub_doc.go_next().is_ok(){
+                        break;
+                    }
                 }
+
                 drop(transmit);
 
                 // RECUPERO DELLE RISORSE PROCESSATE DAI THREAD WORKERS
@@ -258,6 +242,7 @@ pub fn new() -> Self {
             width_cover:    0,
             height_cover:   0,
 
+            epub_path:      FileInfo{ path: Default::default(), format: None },
 
             rich_text_help: RichText::new(TEXT.into())
             .with_attribute(0..16, Attribute::text_color(Color::rgb(1.0, 0.2, 0.1)))
@@ -387,7 +372,6 @@ pub fn clear_all(self: &mut Self) {
 
         self.raw_pages.clear();
         self.raw_pages_modified.clear();
-        self.metadata.titles.clear();
         self.parsed_pages.clear();
         self.formatting_info.clear();
         self.cover_pixels.clear();
@@ -528,20 +512,150 @@ pub fn fill_metadata(self: & mut BookState, epub_doc: & mut EpubDoc<BufReader<Fi
         self.metadata.language = language;
     }
 
-    rewind_epub_cursor(epub_doc);       
-    while epub_doc.go_next().is_ok() {
+    if let Some(css) = epub_doc.resources.get("css") {
 
-        if let Ok(name) = epub_doc.get_current_path() {
-            if let Some(name) = name.to_str() {
-                self.metadata.titles.push(name.to_owned());
+        let css = css.0.clone().to_str().unwrap().replace("\\", "/");
+        if let Ok(css_bytes) = epub_doc.get_resource_by_path(css) {
+            let _ = match std::str::from_utf8(&css_bytes) {
+                Ok(css_text) => {self.metadata.stylesheet = String::from(css_text);
+                }
+                Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+            };
+        }
+
+    }
+    else {
+        if let Some(css) = epub_doc.resources.get("stylesheet") {
+
+            let css = css.0.clone().to_str().unwrap().replace("\\", "/");
+            
+            if let Ok(css_bytes) = epub_doc.get_resource_by_path(css) {
+                let _ = match std::str::from_utf8(&css_bytes) {
+                    Ok(css_text) => {self.metadata.stylesheet = String::from(css_text);
+                    }
+                    Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+                };
             }
         }
     }
+    rewind_epub_cursor(epub_doc);       
     self.metadata.generator = "eeBOOK Reader".to_string();
 
 }
 pub fn save_current_modified_page(self: & mut BookState) {
-    self.raw_pages_modified.insert(self.current_page_i32 as usize, String::from(self.current_html_page.clone()));
+    println!("{}", self.current_page_i32);
+    self.raw_pages_modified.remove(self.current_page_i32 as usize-1);
+    self.raw_pages_modified.insert(self.current_page_i32 as usize-1, String::from(self.current_html_page.clone()));
 }
 
+}
+
+fn run(epub: &mut Vec<u8>, file: &mut EpubDoc<BufReader<File>>, data: &mut BookState) -> Result<String, String> {
+    let mut testo = Vec::new();
+    let mut text_book = Vec::new();
+
+
+    if let Ok(mut builder) = EpubBuilder::new(ZipLibrary::new().unwrap()) {
+
+
+        builder.metadata("author", data.metadata.author.clone()).unwrap();
+        builder.metadata("title", data.metadata.title.clone()).unwrap();
+        builder.metadata("lang", data.metadata.language.clone()).unwrap();
+        builder.metadata("description", data.metadata.description.clone()).unwrap();
+        builder.metadata("generator", "eeBook Reader").unwrap();
+
+        builder.stylesheet(data.metadata.stylesheet.as_bytes()).unwrap();
+
+    
+        let mut page   = 0;
+        let mut iter = 0;
+
+        while file.go_prev().is_ok() {}
+
+        loop {
+
+
+            // ESEGUI LA SCANSIONE DEI CAPITOLI A PARTIRE DAL PRIMO */
+            if let Ok(name) = file.get_current_path() {
+
+                let current_chapter_titletoc = 
+                String::from(name.as_path()
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap().replace("%20", "_"));
+
+                let current_chapter_path: path::PathBuf = name.iter().skip(1).collect();
+                let current_chapter_path_relative = String::from(current_chapter_path.as_path().to_str().unwrap().replace("\\", "/").replace("%20", "_"));
+
+
+                // ESTRAI IL CONTENUTO DI OGNI FILE 
+                if let Ok(test) = file.get_resource_by_path(name.to_str().unwrap().replace("\\", "/")) {
+                    let _ = match std::str::from_utf8(&test) {
+
+                        Ok(text) => {
+
+                            testo.push(String::from(text));
+
+                            if page ==0 {
+                                if let Some(cover) = file.resources.get(file.get_cover_id().as_deref().unwrap()) {
+
+                                    text_book.push(String::from(EMPTY_STRING));
+
+                                    let cover_path = 
+                                    cover.0.clone()
+                                    .to_str().unwrap()
+                                    .replace("\\", "/");
+
+                                    let current_cover_path: path::PathBuf = cover.0.iter().skip(1).collect();
+
+                                    let current_cover_path_relative = 
+                                    String::from(current_cover_path
+                                        .as_path()
+                                        .to_str()
+                                        .unwrap()
+                                        .replace("\\", "/")
+                                        .replace("%20", "_"));
+                                        
+                                    if let Ok(cover_bytes) = file.get_resource_by_path(cover_path.clone()) {
+                                        let content= cover_bytes.clone();
+
+                                        /*INSERISCI LA COVER*/
+                                        builder.add_cover_image(current_cover_path_relative,
+                                                                content.as_slice(),
+                                                                file.get_resource_mime_by_path(cover_path.clone()).unwrap()).unwrap();
+                                    }
+                                    builder.add_content(
+                                        EpubContent::new(current_chapter_path_relative.clone(), testo.last().unwrap().as_bytes())
+                                            .title(current_chapter_titletoc.clone())
+                                            .reftype(ReferenceType::Text)).unwrap();
+                                }
+
+                            }
+                            else{
+                                // AGGIORNAMENTO DEL CONTATORE iter SOLO DOPO AVER INSERITO I CAPITOLI DEL FILE EPUB
+                                text_book.push(data.raw_pages_modified[iter].clone());
+                                iter+=1;
+                                builder.add_content(
+                                    EpubContent::new(current_chapter_path_relative.clone(), text_book.last().unwrap().as_bytes())
+                                        .title(current_chapter_titletoc.clone())
+                                        .reftype(ReferenceType::Text)).unwrap();
+                            }
+                        }
+                        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+                    };
+                }
+            }
+            // VERIFICA SE CI SONO ALTRI CAPITOLI, SE NON CE NE SONO ALTRI ESCI DAL LOOP
+            if !file.go_next().is_ok(){
+                break;
+            }
+            page += 1;
+
+        }
+        if let Ok(_) = builder.generate(epub) {}
+
+        return Ok("DONE".to_string())
+    }
+    return Err("ERROR".to_string())
 }
