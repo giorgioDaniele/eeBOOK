@@ -19,6 +19,8 @@ use druid::ImageBuf;
 use druid::Widget;
 use druid::WidgetExt;
 
+use super::search::search_chapter;
+
 
 
 
@@ -87,8 +89,12 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
         .padding(2.0);
     
     // DA VEDERE
-    let settings_button = Button::<BookState>::new("Settings")
-        .on_click(|_ctx, _current, _env| {})
+    let search_text_button = Button::<BookState>::new("🔍")
+        .on_click(|_ctx, current, _env| {
+            if current.current_view == READ_MODE {
+                search_chapter(current)
+            }
+        })
         .padding(2.0);
     
     // BOTTONE PER LA VISUALIZZAZIONE DELL'HELPER
@@ -129,10 +135,10 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
         .padding(2.0);
     
     // COMANDO DI SALTO
-    let search_page = Button::<BookState>::new("Search Page")
+    let search_page = Button::<BookState>::new("Go to Chapter")
         .on_click(|_ctx, current: &mut BookState, _env| 
             if current.current_view == READ_MODE || current.current_view == EDIT_MODE {
-                current.jump_to_page()
+                current.jump_to_page(0)
             })
         .padding(2.0);
 
@@ -141,7 +147,6 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
         .with_child(file_button)
         .with_child(save_button)
         .with_child(edit_button)
-        .with_child(settings_button)
         .with_child(help_button)
         .with_spacer(30.0)
         .with_child(previous_page)
@@ -173,6 +178,22 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
         .with_child(next_page)
         .with_default_spacer()
         .with_child(search_page)
+        .with_spacer(BIG_SPACER)
+        .with_child(
+
+                // CASELLA DI TESTO PER INSERIRE PAROLA DA CERCARE
+                TextBox::new()
+                .with_text_alignment(druid::TextAlignment::Center)
+                .with_placeholder(EMPTY_STRING)
+                .fix_width(200.0)
+                .lens(BookState::bar_text)
+                .border(PURPLE, 2.0)
+                .rounded(ROUNDED_VALUE)
+                .background(BLACK),
+
+        )
+        .with_default_spacer()
+        .with_child(search_text_button)
         .align_left()
         .border(BLACK, 2.0)
         .rounded(ROUNDED_VALUE)

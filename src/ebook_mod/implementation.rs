@@ -251,10 +251,12 @@ pub fn new() -> Self {
             .with_attribute(115..138, Attribute::style(FontStyle::Italic))
             .with_attribute(17.., Attribute::size(16.0))
             .with_attribute(447.., Attribute::weight(FontWeight::BOLD)),
-
-            
-            
+        
+            ocr_text: String::from(EMPTY_STRING), 
+            bar_text: String::from(EMPTY_STRING), 
+            found_pages: Vec::new() 
         }
+        
     }
 pub fn next_page(self: &mut Self) {
 
@@ -316,17 +318,16 @@ pub fn previous_page(self: &mut Self) {
         }
 
 }
-pub fn jump_to_page(self: &mut Self) {
+pub fn jump_to_page(self: &mut Self, flag: u8) {
 
         if self.epub_is_open {
-
+            
+            if flag == 0 {
             // SE L'INPUT DELL'UTENTE (SOLO NUMERI)
             if self.current_page_string.bytes().all(|ch| ch.is_ascii_digit()) {
 
                 let page_to_jump_to = self.current_page_string.parse::<i32>().unwrap();
-
                 if page_to_jump_to <= self.total_pages_i32 && page_to_jump_to >= 0 {
-
                     // SALVATAGGIO DELLA PAGINA EVENTUALMENTE MODIFICATA
                     self.save_current_modified_page();
                     self.current_page_i32 = page_to_jump_to;
@@ -352,6 +353,36 @@ pub fn jump_to_page(self: &mut Self) {
             }
             else {
                 self.current_page_string = self.current_page_i32.to_string();
+            }
+        }
+
+
+        else {
+
+            let page_to_jump_to = self.current_page_i32;
+            if page_to_jump_to <= self.total_pages_i32 && page_to_jump_to >= 0 {
+                // SALVATAGGIO DELLA PAGINA EVENTUALMENTE MODIFICATA
+                self.save_current_modified_page();
+                self.current_page_i32 = page_to_jump_to;
+
+                self.current_page_string = self.current_page_i32.to_string();
+                let index = (self.current_page_i32 - 1) as usize;
+
+                if let Some(html) = self.raw_pages.get(index)  {
+                    self.current_html_page = html.to_string();
+                }
+                if let Some(text) = self.parsed_pages.get(index) {
+                    self.current_text_page = text.clone();
+                    self.current_rich_text_page = create_rich_page(&self.current_text_page, self.current_page_i32 as usize, &self.formatting_info);
+                }
+            }
+            // CONTROLLO SULL'INTERNVALLO DI PAGINE CARICATE
+            if page_to_jump_to > self.total_pages_i32 {
+                self.current_page_string = self.current_page_i32.to_string();
+            }
+            if page_to_jump_to < 0 {
+                self.current_page_string = self.current_page_i32.to_string();
+            }
             }
         }
         else {// NON FARE NIENTE
@@ -528,7 +559,7 @@ pub fn fill_metadata(self: & mut BookState, epub_doc: & mut EpubDoc<BufReader<Fi
         if let Some(css) = epub_doc.resources.get("stylesheet") {
 
             let css = css.0.clone().to_str().unwrap().replace("\\", "/");
-            
+
             if let Ok(css_bytes) = epub_doc.get_resource_by_path(css) {
                 let _ = match std::str::from_utf8(&css_bytes) {
                     Ok(css_text) => {self.metadata.stylesheet = String::from(css_text);
@@ -543,7 +574,6 @@ pub fn fill_metadata(self: & mut BookState, epub_doc: & mut EpubDoc<BufReader<Fi
 
 }
 pub fn save_current_modified_page(self: & mut BookState) {
-    println!("{}", self.current_page_i32);
     self.raw_pages_modified.remove(self.current_page_i32 as usize-1);
     self.raw_pages_modified.insert(self.current_page_i32 as usize-1, String::from(self.current_html_page.clone()));
 }

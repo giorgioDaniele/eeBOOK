@@ -23,6 +23,7 @@ use druid::WindowDesc;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::fs;
 
 
 use crate::ebook_mod::rendering::*;
@@ -46,6 +47,8 @@ pub enum FormattingInfo {
     Italic,
     Ignore,
 }
+
+
 
 #[derive(Clone, Data, Default)]
 pub struct BookMetadata {
@@ -102,8 +105,20 @@ pub struct BookState {
     width_cover:     u32,
     height_cover:    u32,
 
+    // PERCORSO DEL FILE EPUB APERTO
     #[data(ignore)]
     epub_path:      FileInfo,
+
+    // SUPPORTO ALLA MODALITA' DI RICERCA NEL TESTO
+    ocr_text:    String,
+    bar_text:    String,
+
+    // VETTORE CONTENENTE L'ELENCO DELLE PAGINE IN CUI SONO STATI TROVATI DEI MATCH
+    #[data(eq)]
+    found_pages: Vec<i32>,
+
+
+    
 }
 
 
@@ -124,4 +139,6 @@ pub fn main() {
         .log_to_console()
         .launch(state)
         .expect("[ERROR]: eeBook launch has failed\n");
+
+    if let Ok(_) = fs::remove_file("cover.jpeg") {}
 }
