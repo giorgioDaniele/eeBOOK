@@ -24,7 +24,7 @@ use super::search::search_chapter;
 
 
 
-
+#[allow(non_snake_case)]
 pub fn userinterface_builder() -> impl Widget<BookState> {
 
    
@@ -102,17 +102,20 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
                 } else {
                     if current.current_view == EDIT_MODE {
                         current.current_view = READ_MODE;
+                    }else if current.current_view == HELP_MODE {
+                        current.current_view = READ_MODE;
                     }
                 }
             }
             
         })
-        .padding(2.0).disabled_if(|data, _| data.current_view == IDLE || data.current_view == HELP_MODE);
+        .padding(2.0).disabled_if(|data, _| data.current_view == IDLE
+        );
     
     // RICERCA NEL TESTO
     let search_text_button = Button::<BookState>::new("🔍")
         .on_click(|_ctx, current, _env| {
-                search_chapter(current)
+                search_chapter(current, JUMP_BY_SEARCH)
         })
         .padding(2.0).disabled_if(|data, _| 
             data.current_view != READ_MODE || 
@@ -164,7 +167,7 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
     let search_page = Button::<BookState>::new("Go to Chapter")
         .on_click(|_ctx, current: &mut BookState, _env| 
             if current.current_view == READ_MODE || current.current_view == EDIT_MODE {
-                current.jump_to_page(JUMP_BY_NUMBER)
+                current.jump_to_page(JUMP_BY_BUTTON)
             })
         .padding(2.0).disabled_if(|data, _| data.current_view == IDLE || data.current_view == HELP_MODE);
 

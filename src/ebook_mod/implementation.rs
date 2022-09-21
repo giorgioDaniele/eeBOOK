@@ -1,7 +1,5 @@
 use crate::*;
-
 use std::collections::HashMap;
-use std::f32::consts::E;
 use std::{fs, path};
 use std::fs::File;
 use std::io::BufReader;
@@ -31,7 +29,7 @@ use epub_builder::ReferenceType;
 use epub_builder::ZipLibrary;
 use image::GenericImageView;
 use image::Rgba;
-
+use crate::ebook_mod::search::search_chapter;
 
 
 // COSTANTE CHE RAPPRESENTA L'HELPER DELL'APPLICAZIONE (GRAZIE CLAUDIO)
@@ -43,7 +41,7 @@ Giorgio Daniele Luppina
 Claudio Di Maida";
 
 
-
+#[allow(non_snake_case)]
 
 
 /// METODI ASSOCIATI PER LA CREAZIONE DEL FILE EPUB
@@ -211,7 +209,29 @@ impl AppDelegate<BookState> for Delegate {
             // GESTIONE DELL'IMMAGINE CARICATA
             else {
 
+                let language : String;
 
+                match data.metadata.language.as_str() {
+                    ITALIAN => language = String::from("ita"),
+                    ENGLISH => language = String::from("eng"),
+                    _             => language = String::from("eng"),
+                }   
+
+                std::process::Command::new("tesseract")
+                .arg(file_info.path())
+                .arg("text")
+                .arg("--oem")
+                .arg("1")
+                .arg("-l")
+                .arg(language)
+                .output()
+                .expect("[ERROR]: tesseract has failed");
+
+                let ocr_text = fs::read_to_string("text.txt").unwrap();
+                data.ocr_text = ocr_text;
+
+                search_chapter(data, JUMP_BY_OCR_SEARCH);
+                if let Ok(_) = fs::remove_file("text.txt") {}
 
             }
             return Handled::Yes;
@@ -281,10 +301,6 @@ pub fn next_page(self: &mut Self) {
             self.save_current_modified_page();
             self.current_page_i32 += 1;
 
-            if self.current_page_i32 >= self.total_pages_i32 {
-                self.current_page_i32 = self.total_pages_i32;
-            }
-
             self.current_page_string = self.current_page_i32.to_string();
             let index = (self.current_page_i32 - 1) as usize;
 
@@ -310,10 +326,6 @@ pub fn previous_page(self: &mut Self) {
             self.save_current_modified_page();
             self.current_page_i32 -= 1;
 
-            if self.current_page_i32 <= 1 {
-                self.current_page_i32 = 1;
-            }
-
             self.current_page_string = self.current_page_i32.to_string();
             let index = (self.current_page_i32 - 1) as usize;
 
@@ -334,8 +346,8 @@ pub fn previous_page(self: &mut Self) {
 pub fn jump_to_page(self: &mut Self, flag: u8) {
 
         if self.epub_is_open {
-            
-            if flag ==JUMP_BY_NUMBER {
+
+            if flag == JUMP_BY_BUTTON {
             // SE L'INPUT DELL'UTENTE (SOLO NUMERI)
                 if self.current_page_string.bytes().all(|ch| ch.is_ascii_digit()) {
 
@@ -369,37 +381,36 @@ pub fn jump_to_page(self: &mut Self, flag: u8) {
                 }
             }
 
+            if flag == JUMP_BY_OCR_SEARCH || flag == JUMP_BY_SEARCH {
 
-        else {
+                let page_to_jump_to = self.current_page_i32;
+                if page_to_jump_to <= self.total_pages_i32 && page_to_jump_to >= 0 {
+                    // SALVATAGGIO DELLA PAGINA EVENTUALMENTE MODIFICATA
+                    self.save_current_modified_page();
+                    self.current_page_i32 = page_to_jump_to;
 
-            let page_to_jump_to = self.current_page_i32;
-            if page_to_jump_to <= self.total_pages_i32 && page_to_jump_to >= 0 {
-                // SALVATAGGIO DELLA PAGINA EVENTUALMENTE MODIFICATA
-                self.save_current_modified_page();
-                self.current_page_i32 = page_to_jump_to;
+                    self.current_page_string = self.current_page_i32.to_string();
+                    let index = (self.current_page_i32 - 1) as usize;
 
-                self.current_page_string = self.current_page_i32.to_string();
-                let index = (self.current_page_i32 - 1) as usize;
-
-                if let Some(html) = self.raw_pages.get(index)  {
-                    self.current_html_page = html.to_string();
+                    if let Some(html) = self.raw_pages.get(index)  {
+                        self.current_html_page = html.to_string();
+                    }
+                    if let Some(text) = self.parsed_pages.get(index) {
+                        self.current_text_page = text.clone();
+                        self.current_rich_text_page = create_rich_page(&self.current_text_page, self.current_page_i32 as usize, &self.formatting_info);
+                    }
                 }
-                if let Some(text) = self.parsed_pages.get(index) {
-                    self.current_text_page = text.clone();
-                    self.current_rich_text_page = create_rich_page(&self.current_text_page, self.current_page_i32 as usize, &self.formatting_info);
+                // CONTROLLO SULL'INTERNVALLO DI PAGINE CARICATE
+                if page_to_jump_to > self.total_pages_i32 {
+                    self.current_page_string = self.current_page_i32.to_string();
+                }
+                if page_to_jump_to < 0 {
+                    self.current_page_string = self.current_page_i32.to_string();
+                }
                 }
             }
-            // CONTROLLO SULL'INTERNVALLO DI PAGINE CARICATE
-            if page_to_jump_to > self.total_pages_i32 {
-                self.current_page_string = self.current_page_i32.to_string();
+            else {// NON FARE NIENTE
             }
-            if page_to_jump_to < 0 {
-                self.current_page_string = self.current_page_i32.to_string();
-            }
-            }
-        }
-        else {// NON FARE NIENTE
-        }
 
     }
 pub fn clear_all(self: &mut Self) {

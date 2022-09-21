@@ -13,12 +13,16 @@ const EDIT_MODE          : u8 = 1;
 const IDLE               : u8 = 2;
 const HELP_MODE          : u8 = 3;
 
-const JUMP_BY_SEARCH     : u8 = 0;
-const JUMP_BY_NUMBER     : u8 = 0;
+const JUMP_BY_BUTTON     : u8 = 0;
+const JUMP_BY_SEARCH     : u8 = 1;
+const JUMP_BY_OCR_SEARCH : u8 = 2;
 
 const EPUB_LOADING       : u8 = 0;
 const IMAGE_LOADING      : u8 = 1;
 
+
+const ITALIAN            : &str = "it";
+const ENGLISH            : &str = "en";
 
 const EMPTY_STRING       : &str = "";
 const ZERO_STRING        : &str =  "0";
