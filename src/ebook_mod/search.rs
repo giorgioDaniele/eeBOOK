@@ -62,7 +62,7 @@ pub fn search_chapter (data: & mut BookState) {
     for tid in thread {
         tid.join().unwrap();
     }
-    data.jump_to_page(1);
+    data.jump_to_page(JUMP_BY_SEARCH);
 
 
 

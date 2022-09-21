@@ -1,6 +1,7 @@
 use crate::*;
 
 use std::collections::HashMap;
+use std::f32::consts::E;
 use std::{fs, path};
 use std::fs::File;
 use std::io::BufReader;
@@ -98,111 +99,121 @@ impl AppDelegate<BookState> for Delegate {
         // APERTURA EPUB
         if let Some(file_info) = cmd.get(commands::OPEN_FILE) {
 
-            if !data.parsed_pages.is_empty() {
-                data.clear_all();
-            }
+            if data.object_loaded == EPUB_LOADING {
 
-            let mut page = 0;
-            println!("{:?}", file_info);
 
-            if let Ok(mut epub_doc) = EpubDoc::new(file_info.path()) {
+                if !data.parsed_pages.is_empty() {
+                    data.clear_all();
+                }
 
-                data.epub_path=file_info.clone();
+                let mut page = 0;
+                println!("{:?}", file_info);
 
-                // CATTURA DEI METADATI DEL FILE EPUB APERTO
-                data.fill_metadata(&mut epub_doc);
+                if let Ok(mut epub_doc) = EpubDoc::new(file_info.path()) {
 
-                // CATTURA DEI PIXEL DELLA COPERTINA E LORO CARICAMENTO
-                if let Ok(cover) = epub_doc.get_cover() {
-                    data.cover_pixels = cover;
-                    data.book_has_cover = true;
-                    data.set_cover();
+                    data.epub_path=file_info.clone();
+
+                    // CATTURA DEI METADATI DEL FILE EPUB APERTO
+                    data.fill_metadata(&mut epub_doc);
+
+                    // CATTURA DEI PIXEL DELLA COPERTINA E LORO CARICAMENTO
+                    if let Ok(cover) = epub_doc.get_cover() {
+                        data.cover_pixels = cover;
+                        data.book_has_cover = true;
+                        data.set_cover();
+                    }
+                    else {
+                        data.book_has_cover = false;
+                        data.set_default_cover();   
+                    }
+
+                    let (
+                        transmit, 
+                        receive) = 
+                        channel::<(HashMap<(usize, usize), FormattingInfo>, String, usize)>
+                        ();
+
+                    let turn = Arc::new((Mutex::new(1), Condvar::new()));
+                    
+                    rewind_epub_cursor(&mut epub_doc);
+
+
+                    loop {
+
+                        if let Ok(epcov)= epub_doc.get_cover_id(){
+                                if let Some(cover) = epub_doc.resources.get(&*epcov) {
+                                    if page==0 {
+                                        epub_doc.go_next().is_ok();
+                                    }
+                                }
+                        }
+                        if let Ok(current_html_page) = epub_doc.get_current_str() {
+
+                            let transmit = Sender::clone(&transmit);
+                            let turn = Arc::clone(&turn);
+
+                            // CLONAZIONE NECESSARIA PER L'INSERIMENTO DELLA STESSA RISORSA IN STRUTTURE DATI DIFFERENTI
+                            let html_first_source  = current_html_page.clone();
+                            let html_second_source = current_html_page.clone();
+                            let html_third_source = current_html_page.clone();
+
+                            // AGGIORNAMENTO DEL NUMERO DI PAGINA HTML CORRENTE DA PROCESSARE
+                            page += 1;
+
+                            data.raw_pages.push(html_first_source);
+                            data.raw_pages_modified.push(html_third_source);
+
+                            // CREAZIONE DEL THREAD
+                            std::thread::spawn(move || {
+
+                                let mut partial_map = HashMap::new(); 
+                                let parsed_string = 
+                                    parse_calibre(&html_second_source, page as usize, &mut partial_map);
+                                    if let Ok(mut current_turn) = turn.0.lock() {
+
+                                        // MECCANISMO DI ATTESA ESCOGITATO PER GARANTIRE LA TRASMISSIONE IN ORDINE DELLA PAGINE PROCESSATE
+                                        while current_turn.ne(&page) {
+                                            current_turn = turn.1.wait(current_turn).unwrap();
+                                        }
+                                        transmit.send((partial_map, parsed_string, page)).unwrap();
+                                    }
+                            });
+
+                        }
+                        // VERIFICA SE CI SONO ALTRI CAPITOLO, SE NON CE SONO ALTRI ESCI DAL LOOP
+                        if !epub_doc.go_next().is_ok(){
+                            break;
+                        }
+                    }
+
+                    drop(transmit);
+
+                    // RECUPERO DELLE RISORSE PROCESSATE DAI THREAD WORKERS
+                    for (partial_map, parsed_string, _n_page) in &receive {
+                        for (key, value) in partial_map {
+                                    data.formatting_info.insert(key, value);
+                        }
+                        data.parsed_pages.push(parsed_string);
+                        if let Ok(mut current_turn) = turn.0.lock() {
+                            *current_turn = *current_turn + 1;
+                            turn.1.notify_all();
+                        }   
+                    }
+                    
                 }
                 else {
-                    data.book_has_cover = false;
-                    data.set_default_cover();   
+                    panic!("[ERROR]: can not open the book");
                 }
-
-                let (
-                    transmit, 
-                    receive) = 
-                    channel::<(HashMap<(usize, usize), FormattingInfo>, String, usize)>
-                    ();
-
-                let turn = Arc::new((Mutex::new(1), Condvar::new()));
-                
-                rewind_epub_cursor(&mut epub_doc);
-
-
-                loop {
-
-                    if let Ok(epcov)= epub_doc.get_cover_id(){
-                            if let Some(cover) = epub_doc.resources.get(&*epcov) {
-                                if page==0 {
-                                    epub_doc.go_next().is_ok();
-                                }
-                            }
-                    }
-                    if let Ok(current_html_page) = epub_doc.get_current_str() {
-
-                        let transmit = Sender::clone(&transmit);
-                        let turn = Arc::clone(&turn);
-
-                        // CLONAZIONE NECESSARIA PER L'INSERIMENTO DELLA STESSA RISORSA IN STRUTTURE DATI DIFFERENTI
-                        let html_first_source  = current_html_page.clone();
-                        let html_second_source = current_html_page.clone();
-                        let html_third_source = current_html_page.clone();
-
-                        // AGGIORNAMENTO DEL NUMERO DI PAGINA HTML CORRENTE DA PROCESSARE
-                        page += 1;
-
-                        data.raw_pages.push(html_first_source);
-                        data.raw_pages_modified.push(html_third_source);
-
-                        // CREAZIONE DEL THREAD
-                        std::thread::spawn(move || {
-
-                            let mut partial_map = HashMap::new(); 
-                            let parsed_string = 
-                                parse_calibre(&html_second_source, page as usize, &mut partial_map);
-                                if let Ok(mut current_turn) = turn.0.lock() {
-
-                                    // MECCANISMO DI ATTESA ESCOGITATO PER GARANTIRE LA TRASMISSIONE IN ORDINE DELLA PAGINE PROCESSATE
-                                    while current_turn.ne(&page) {
-                                        current_turn = turn.1.wait(current_turn).unwrap();
-                                    }
-                                    transmit.send((partial_map, parsed_string, page)).unwrap();
-                                }
-                        });
-
-                    }
-                    // VERIFICA SE CI SONO ALTRI CAPITOLO, SE NON CE SONO ALTRI ESCI DAL LOOP
-                    if !epub_doc.go_next().is_ok(){
-                        break;
-                    }
-                }
-
-                drop(transmit);
-
-                // RECUPERO DELLE RISORSE PROCESSATE DAI THREAD WORKERS
-                for (partial_map, parsed_string, _n_page) in &receive {
-                    for (key, value) in partial_map {
-                                data.formatting_info.insert(key, value);
-                    }
-                    data.parsed_pages.push(parsed_string);
-                    if let Ok(mut current_turn) = turn.0.lock() {
-                        *current_turn = *current_turn + 1;
-                        turn.1.notify_all();
-                    }   
-                }
-                
+                // INIZIALIZZAZIONE GENERALE DI TUTTI GLI ATTRIBUTI CARATTERISITICI DEL LIBRO APERTO
+                data.first_setup(1, page as i32);
             }
+
+            // GESTIONE DELL'IMMAGINE CARICATA
             else {
-                panic!("[ERROR]: can not open the book");
-            }
 
-            // INIZIALIZZAZIONE GENERALE DI TUTTI GLI ATTRIBUTI CARATTERISITICI DEL LIBRO APERTO
-            data.first_setup(1, page as i32);
+
+
+            }
             return Handled::Yes;
         }
         Handled::No
@@ -252,9 +263,11 @@ pub fn new() -> Self {
             .with_attribute(17.., Attribute::size(16.0))
             .with_attribute(447.., Attribute::weight(FontWeight::BOLD)),
         
-            ocr_text: String::from(EMPTY_STRING), 
-            bar_text: String::from(EMPTY_STRING), 
-            found_pages: Vec::new() 
+            ocr_text:    String::from(EMPTY_STRING), 
+            bar_text:    String::from(EMPTY_STRING), 
+            found_pages: Vec::new(),
+
+            object_loaded:  EPUB_LOADING, 
         }
         
     }
@@ -322,39 +335,39 @@ pub fn jump_to_page(self: &mut Self, flag: u8) {
 
         if self.epub_is_open {
             
-            if flag == 0 {
+            if flag ==JUMP_BY_NUMBER {
             // SE L'INPUT DELL'UTENTE (SOLO NUMERI)
-            if self.current_page_string.bytes().all(|ch| ch.is_ascii_digit()) {
+                if self.current_page_string.bytes().all(|ch| ch.is_ascii_digit()) {
 
-                let page_to_jump_to = self.current_page_string.parse::<i32>().unwrap();
-                if page_to_jump_to <= self.total_pages_i32 && page_to_jump_to >= 0 {
-                    // SALVATAGGIO DELLA PAGINA EVENTUALMENTE MODIFICATA
-                    self.save_current_modified_page();
-                    self.current_page_i32 = page_to_jump_to;
+                    let page_to_jump_to = self.current_page_string.parse::<i32>().unwrap();
+                    if page_to_jump_to <= self.total_pages_i32 && page_to_jump_to >= 0 {
+                        // SALVATAGGIO DELLA PAGINA EVENTUALMENTE MODIFICATA
+                        self.save_current_modified_page();
+                        self.current_page_i32 = page_to_jump_to;
 
-                    self.current_page_string = self.current_page_i32.to_string();
-                    let index = (self.current_page_i32 - 1) as usize;
+                        self.current_page_string = self.current_page_i32.to_string();
+                        let index = (self.current_page_i32 - 1) as usize;
 
-                    if let Some(html) = self.raw_pages.get(index)  {
-                        self.current_html_page = html.to_string();
+                        if let Some(html) = self.raw_pages.get(index)  {
+                            self.current_html_page = html.to_string();
+                        }
+                        if let Some(text) = self.parsed_pages.get(index) {
+                            self.current_text_page = text.clone();
+                            self.current_rich_text_page = create_rich_page(&self.current_text_page, self.current_page_i32 as usize, &self.formatting_info);
+                        }
                     }
-                    if let Some(text) = self.parsed_pages.get(index) {
-                        self.current_text_page = text.clone();
-                        self.current_rich_text_page = create_rich_page(&self.current_text_page, self.current_page_i32 as usize, &self.formatting_info);
+                    // CONTROLLO SULL'INTERNVALLO DI PAGINE CARICATE
+                    if page_to_jump_to > self.total_pages_i32 {
+                        self.current_page_string = self.current_page_i32.to_string();
+                    }
+                    if page_to_jump_to < 0 {
+                        self.current_page_string = self.current_page_i32.to_string();
                     }
                 }
-                // CONTROLLO SULL'INTERNVALLO DI PAGINE CARICATE
-                if page_to_jump_to > self.total_pages_i32 {
-                    self.current_page_string = self.current_page_i32.to_string();
-                }
-                if page_to_jump_to < 0 {
+                else {
                     self.current_page_string = self.current_page_i32.to_string();
                 }
             }
-            else {
-                self.current_page_string = self.current_page_i32.to_string();
-            }
-        }
 
 
         else {

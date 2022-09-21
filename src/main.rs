@@ -6,10 +6,20 @@ const DEFAULT_SAVED_BOOK : &str = "eeBOOK.epub";
 const TINY_SPACER        : f64 = 2.0;
 const BIG_SPACER         : f64 = 30.0;
 const ROUNDED_VALUE      : f64 = 5.0;
+
+// SEZIONI DELL'APPLICAZIONE
 const READ_MODE          : u8 = 0;
 const EDIT_MODE          : u8 = 1;
 const IDLE               : u8 = 2;
 const HELP_MODE          : u8 = 3;
+
+const JUMP_BY_SEARCH     : u8 = 0;
+const JUMP_BY_NUMBER     : u8 = 0;
+
+const EPUB_LOADING       : u8 = 0;
+const IMAGE_LOADING      : u8 = 1;
+
+
 const EMPTY_STRING       : &str = "";
 const ZERO_STRING        : &str =  "0";
 
@@ -62,6 +72,7 @@ pub struct BookMetadata {
     cover_image:   String,
    
 }
+
 
 #[derive(Clone, Data, Lens)]
 
@@ -117,6 +128,7 @@ pub struct BookState {
     #[data(eq)]
     found_pages: Vec<i32>,
 
+    object_loaded: u8,
 
     
 }

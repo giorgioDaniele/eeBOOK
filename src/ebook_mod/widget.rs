@@ -29,27 +29,47 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
 
    
     let EPUB = FileSpec::new("EPUB Format", &["epub"]);
-    let TXT = FileSpec::new("TXT Format", &["txt"]);
+    let JPEG = FileSpec::new("JPEG Format", &["jpeg"]);
+    let JPG  = FileSpec::new("JPG Format", &["jpg"]);
+    let PNG  = FileSpec::new("PNG Format", &["png"]);
 
-    let save_dialog_options = FileDialogOptions::new()
-        .allowed_types(vec![EPUB, TXT])
+    let save_epub_dialog_options = FileDialogOptions::new()
+        .allowed_types(vec![EPUB])
         .default_type(EPUB)
         .default_name(DEFAULT_SAVED_BOOK)
         .name_label("Target")
         .title("Choose a target for this lovely file")
         .button_text("Export");
 
-    let open_dialog_options = FileDialogOptions::new()
+    let open_epub_dialog_options = FileDialogOptions::new()
         .clone()
-        .allowed_types(vec![EPUB, TXT])
+        .allowed_types(vec![EPUB])
         .name_label("Source")
         .button_text("Import");
+
+    let open_image_dialog_options = FileDialogOptions::new()
+        .clone()
+        .allowed_types(vec![JPEG, JPG, PNG])
+        .name_label("Source")
+        .button_text("Import");
+
+    // BOTTONE OCR
+    let ocr_button = Button::<BookState>::new("Search by Image")
+        .on_click(move |ctx, current, _env| {
+            current.object_loaded = IMAGE_LOADING;
+            ctx.submit_command(druid::commands::SHOW_OPEN_PANEL.with(open_image_dialog_options.clone()));
+        })
+        .padding(2.0).disabled_if(|data, _| 
+            data.current_view == EDIT_MODE || 
+            data.current_view == HELP_MODE || 
+            data.current_view == IDLE);
 
     // BOTTONE DI APERTURE DEL FILE EXPLORER (APERTURA DI UN EPUB)
     let file_button = Button::<BookState>::new("Open Book")
         .on_click(move |ctx, current, _env| {
             current.current_view = IDLE;
-            ctx.submit_command(druid::commands::SHOW_OPEN_PANEL.with(open_dialog_options.clone()));
+            current.object_loaded = EPUB_LOADING;
+            ctx.submit_command(druid::commands::SHOW_OPEN_PANEL.with(open_epub_dialog_options.clone()));
             
         })
         .padding(2.0);
@@ -57,11 +77,12 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
     // BOTTONE DI APERTURE DEL FILE EXPLORER (SALVATAGGIO DI UN EPUB)
     let save_button = Button::<BookState>::new("Save Book")
         .on_click(move |ctx, current, _env| {
-            if current.current_view == EDIT_MODE {
-                ctx.submit_command(druid::commands::SHOW_SAVE_PANEL.with(save_dialog_options.clone()));
-            }
+                ctx.submit_command(druid::commands::SHOW_SAVE_PANEL.with(save_epub_dialog_options.clone()));
         })
-        .padding(2.0);
+        .padding(2.0).disabled_if(|data, _| 
+            data.current_view == READ_MODE || 
+            data.current_view == IDLE ||
+            data.current_view == HELP_MODE);
     
     // BOTTONE DI APERTURA DELLA MODALITA' EDIT
     let edit_button = Button::<BookState>::dynamic(|state: &BookState, _: &Env| {
@@ -86,17 +107,20 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
             }
             
         })
-        .padding(2.0);
+        .padding(2.0).disabled_if(|data, _| data.current_view == IDLE || data.current_view == HELP_MODE);
     
-    // DA VEDERE
+    // RICERCA NEL TESTO
     let search_text_button = Button::<BookState>::new("🔍")
         .on_click(|_ctx, current, _env| {
-            if current.current_view == READ_MODE {
                 search_chapter(current)
-            }
         })
-        .padding(2.0);
-    
+        .padding(2.0).disabled_if(|data, _| 
+            data.current_view != READ_MODE || 
+            data.bar_text.is_empty() || 
+            data.current_view == EDIT_MODE || 
+            data.current_view == IDLE
+            || data.current_view == HELP_MODE);
+
     // BOTTONE PER LA VISUALIZZAZIONE DELL'HELPER
     let help_button = Button::<BookState>::new("About")
         .on_click(|_ctx, current, _env| {
@@ -123,24 +147,28 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
                 current.next_page()
             }
     })
-        .padding(2.0);
+        .padding(2.0).disabled_if(|data, _| 
+            data.current_page_i32 == data.total_pages_i32 || data.current_view == IDLE || data.current_view == HELP_MODE);
 
-    // SCORRIMENTO IN ALL'INDIETRO
+    // SCORRIMENTO ALL'INDIETRO
     let previous_page = Button::<BookState>::new("◁")
         .on_click(|_ctx, current: &mut BookState, _env| {
             if current.current_view == READ_MODE || current.current_view == EDIT_MODE {
                 current.previous_page()
             }
         })
-        .padding(2.0);
+        .padding(2.0).disabled_if(|data, _| 
+            data.current_page_i32 == 1 || data.current_view == IDLE || data.current_view == HELP_MODE);
     
     // COMANDO DI SALTO
     let search_page = Button::<BookState>::new("Go to Chapter")
         .on_click(|_ctx, current: &mut BookState, _env| 
             if current.current_view == READ_MODE || current.current_view == EDIT_MODE {
-                current.jump_to_page(0)
+                current.jump_to_page(JUMP_BY_NUMBER)
             })
-        .padding(2.0);
+        .padding(2.0).disabled_if(|data, _| data.current_view == IDLE || data.current_view == HELP_MODE);
+
+    
 
     let toolbar = Flex::column().with_child(
         Flex::row()
@@ -194,6 +222,8 @@ pub fn userinterface_builder() -> impl Widget<BookState> {
         )
         .with_default_spacer()
         .with_child(search_text_button)
+        .with_default_spacer()
+        .with_child(ocr_button)
         .align_left()
         .border(BLACK, 2.0)
         .rounded(ROUNDED_VALUE)
