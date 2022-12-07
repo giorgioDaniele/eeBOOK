@@ -1,14 +1,22 @@
 [package]
-name = "ebook"
+name = "eebook"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-druid = { git = "https://github.com/linebender/druid.git" }
-epub = {git = "https://github.com/danigm/epub-rs"} # Deal with epubs
-regex = "1.5.6" # Parsing of HTML from epubs
-serde = { version = "1.0.136", features = ["derive"] }
-image = "0.24.3"
-epub-builder = "0.5.0"
+# GESTIONE GUI
+druid = { git = "https://github.com/linebender/druid.git", features = ["im","svg", "image", "png", "jpeg"]}
+# GESTIONE FILE EPUB
+epub =  { git = "https://github.com/danigm/epub-rs"} 
+# GESTIONE FILE ZIP
+zip-extensions = "0.6.1"
+# GESTIONE CARTELLA
+walkdir = "2.3.2"
+# GESTIONE PARSING HTML
+tl = "0.7.7"
+# GESTIONE IMMAGINI
+image = "0.24.4"
+# RICERCA TESTUALE
+regex = "1.6.0"
